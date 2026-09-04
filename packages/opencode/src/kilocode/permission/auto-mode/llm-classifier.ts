@@ -24,7 +24,8 @@ export const LlmPermissionClassifier: ClassifierModel = {
     const resolved = await resolveLanguage()
     const result = await generateText({
       model: resolved.language,
-      temperature: 0,
+      temperature: resolved.model.capabilities.temperature ? 0 : undefined,
+      abortSignal: AbortSignal.timeout(15000),
       maxRetries: 1,
       providerOptions: ProviderTransform.providerOptions(
         resolved.model,
@@ -33,7 +34,7 @@ export const LlmPermissionClassifier: ClassifierModel = {
       prompt: classifierPrompt(input, stage),
     })
     if (stage === 1) {
-      return result.text.trim().toUpperCase().startsWith("ALLOW")
+      return result.text.trim().toUpperCase() === "ALLOW"
         ? { decision: "allow", risk: "low", summary: "low-risk action", reason: "stage 1 allowed" }
         : { decision: "ask", risk: "medium", summary: "deeper review required", reason: "stage 1 escalated" }
     }

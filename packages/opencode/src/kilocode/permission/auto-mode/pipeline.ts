@@ -15,7 +15,17 @@ export namespace AutoModePipeline {
   }
 
   export const evaluate = Effect.fn("AutoModePipeline.evaluate")(function* (input: GateInput) {
-    const result = yield* Effect.promise(() => evaluateWith(input, variant(), LlmPermissionClassifier))
+    const result = yield* Effect.promise(async () => {
+      try {
+        const policies: unknown = JSON.parse(process.env.KILO_AUTO_MODE_POLICIES ?? "[]")
+        if (!Array.isArray(policies) || !policies.every((rule) => typeof rule === "string")) {
+          throw new Error("KILO_AUTO_MODE_POLICIES must be a JSON array of strings")
+        }
+        return await evaluateWith({ ...input, policies }, variant(), LlmPermissionClassifier)
+      } catch {
+        return { decision: "ask" as const, layer: "none" as const, reason: "Invalid administrator policy configuration", summary: "Automatic review unavailable", latencyMs: 0 }
+      }
+    })
     if (result.decision === "allow") return null
     yield* Effect.logInfo("auto-mode classifier", { permission: input.permission, patterns: input.patterns, ...result })
     return result
@@ -27,7 +37,8 @@ export async function evaluateWith(input: GateInput, variant: Variant, model: Cl
   const start = performance.now()
   if (variant === "off") return output({ decision: "allow", reason: "classifier disabled" }, "none", start)
 
-  const tier = AutoModeTier.evaluate(input)
+  // Prose policy can restrict reads/edits too; it must not be bypassed by the fast path.
+  const tier = input.policies?.length ? null : AutoModeTier.evaluate(input)
   if (tier) return tier
 
   if (variant === "single") {

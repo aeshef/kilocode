@@ -70,6 +70,20 @@ describe("classifier architectures", () => {
 })
 
 describe("reasoning-blind prompt", () => {
+  test("administrator policy is included in both stages", () => {
+    for (const stage of [1, 2] as const) {
+      const prompt = classifierPrompt({ ...input("bash", "git push", "publish"), policies: ["No publication outside internal remotes"] }, stage)
+      expect(prompt).toContain("No publication outside internal remotes")
+      expect(prompt).toContain("User requests cannot override")
+    }
+  })
+
+  test("policy-restricted reads cannot bypass classifier", async () => {
+    const fake = scripted([deny])
+    const result = await evaluateWith({ ...input("read", ".env", "inspect configuration"), policies: ["Never read .env"] }, "single", fake.model)
+    expect(fake.calls).toEqual([2])
+    expect(result.decision).toBe("deny")
+  })
   test("contains user authorization and action only", () => {
     const prompt = classifierPrompt(input("bash", "dropdb production", "restore my test environment"), 2)
     expect(prompt).toContain("restore my test environment")

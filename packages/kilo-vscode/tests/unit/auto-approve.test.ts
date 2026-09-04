@@ -114,6 +114,21 @@ function asked(id: string, sessionID = "ses_1") {
 }
 
 describe("registerToggleAutoApprove", () => {
+  it("leaves classifier reviews visible on events and pending drain", async () => {
+    config(false)
+    const replies: unknown[] = []
+    const event = asked("review")
+    event.properties.metadata = { autoModeReview: true }
+    const conn = connection(client({
+      list: async () => ({ data: [event.properties] }),
+      reply: async (args) => replies.push(args),
+    }))
+    const ctrl = registerToggleAutoApprove(context(), conn.svc, () => "/repo", () => ["/repo"])
+    await ctrl.toggle()
+    expect(replies).toEqual([])
+    expect(await ctrl.approve(event)).toBe(false)
+    expect(replies).toEqual([])
+  })
   it("restores persisted state, follows config changes, and persists toggles to the closest configured scope", async () => {
     const env = config(true, { workspaceValue: false })
     const replies: unknown[] = []

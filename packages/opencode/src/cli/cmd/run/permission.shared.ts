@@ -91,6 +91,20 @@ export function permissionOptions(stage: PermissionStage, temporary?: boolean): 
 }
 
 export function permissionInfo(request: PermissionRequest): PermissionInfo {
+  // kilocode_change start - show model assessment alongside the original invocation
+  if (request.metadata?.["autoModeReview"] === true) {
+    return {
+      icon: "!",
+      title: "Auto mode: review required",
+      lines: [
+        String(request.metadata["autoModeSummary"] ?? "Consequences unknown"),
+        String(request.metadata["autoModeReason"] ?? ""),
+        "Model assessment; inspect the original invocation. Approval applies once.",
+        ...request.patterns,
+      ],
+    }
+  }
+  // kilocode_change end
   const pats = patterns(request)
   const input = data(request)
   const info = toolPermissionInfo(request.permission, input, dict(request.metadata), pats)
@@ -136,6 +150,7 @@ export function permissionInfo(request: PermissionRequest): PermissionInfo {
 }
 
 export function temporaryPermission(request: PermissionRequest) {
+  if (request.metadata?.["autoModeReview"] === true) return true // kilocode_change
   return request.metadata?.["skillShell"] === true || request.metadata?.["sandboxEscalation"] === true
 }
 

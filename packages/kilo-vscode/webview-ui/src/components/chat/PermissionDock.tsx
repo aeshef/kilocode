@@ -82,7 +82,7 @@ export const PermissionDock: Component<{
 
   let root!: HTMLDivElement
 
-  const hasRules = () => rules().length > 0 && !skillShell()
+  const hasRules = () => rules().length > 0 && !skillShell() && props.request.args.autoModeReview !== true
 
   const toggleExpanded = () => {
     const next = !expanded()
@@ -295,6 +295,15 @@ export const PermissionDock: Component<{
           {/* Pierre's virtualizer uses the scroll root's first child as its content
               container, so keep all variable-height permission content in one wrapper. */}
           <div data-slot="permission-scroll-content">
+            <Show when={props.request.args.autoModeReview === true}>
+              <div data-slot="permission-hint" data-wrap>
+                <strong>Auto mode · {String(props.request.args.autoModeRisk ?? "unknown")}</strong>
+                <p>{String(props.request.args.autoModeSummary ?? "Последствия не удалось оценить")}</p>
+                <p>{String(props.request.args.autoModeReason ?? "")}</p>
+                <p>Оценка модели. Проверьте исходный вызов ниже. Разрешение действует один раз.</p>
+                <For each={props.request.patterns}>{(pattern) => <code>{pattern}</code>}</For>
+              </div>
+            </Show>
             <Show
               when={skillShellCommands().length > 0}
               fallback={

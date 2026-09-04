@@ -921,7 +921,7 @@ export const RunCommand = effectCmd({
               if (!KiloRunAuto.allowed(tracked, permission.sessionID)) continue // kilocode_change
               // kilocode_change start - skill shell batches need an interactive human decision. The server ignores
               // non-interactive approvals, so headless runs must reject explicitly rather than leave them pending.
-              if (permission.metadata?.["skillShell"] === true || permission.metadata?.["sandboxEscalation"] === true) {
+              if (permission.metadata?.["skillShell"] === true || permission.metadata?.["sandboxEscalation"] === true || permission.metadata?.["autoModeReview"] === true) {
                 await client.permission.reply({ requestID: permission.id, reply: "reject" })
                 continue
               }

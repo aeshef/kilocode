@@ -245,6 +245,7 @@ const layer = Layer.effect(
       }
 
       // kilocode_change start - auto mode security gate (#9138 / hackathon MVP)
+      let review: Record<string, unknown> = {}
       // Classify only calls that existing policy would silently approve.
       // Explicit deny/ask remains authoritative (#9138).
       if (!needsAsk && AutoModePipeline.enabled()) {
@@ -272,6 +273,7 @@ const layer = Layer.effect(
         }
         if (gate?.decision === "ask") {
           needsAsk = true
+          review = { autoModeReview: true, autoModeSummary: gate.summary, autoModeReason: gate.reason, autoModeRisk: gate.risk, disableAlways: true }
         }
       }
       // kilocode_change end
@@ -293,6 +295,7 @@ const layer = Layer.effect(
         // kilocode_change start - disable persistence for protected config paths outside one exact global skill
         metadata: {
           ...request.metadata,
+          ...review,
           ...(skill ? { rules: [skill] } : {}),
           ...(isProtected && skill === undefined
             ? { [ConfigProtection.DISABLE_ALWAYS_KEY]: true, [ConfigProtection.CONFIG_PROTECTED_KEY]: true }
@@ -328,7 +331,7 @@ const layer = Layer.effect(
       // Log rather than fail silently: a genuine human client sets `interactive`, so a refused reply here
       // means an auto-approver tried to answer — the request intentionally stays pending for a human.
       if (
-        (existing.info.metadata?.["skillShell"] === true || existing.info.metadata?.["sandboxEscalation"] === true) &&
+        (existing.info.metadata?.["skillShell"] === true || existing.info.metadata?.["sandboxEscalation"] === true || existing.info.metadata?.["autoModeReview"] === true) &&
         input.reply !== "reject" &&
         input.interactive !== true
       ) {
@@ -338,6 +341,9 @@ const layer = Layer.effect(
         return
       }
       // kilocode_change end
+
+      // kilocode_change - classifier review grants one invocation only, never a persistent exception
+      if (existing.info.metadata?.["autoModeReview"] === true && input.reply === "always") return // kilocode_change
 
       pending.delete(input.requestID)
       yield* events.publish(Event.Replied, {

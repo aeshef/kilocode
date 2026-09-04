@@ -9,6 +9,7 @@ export interface GateInput {
   patterns: readonly string[]
   metadata?: Record<string, unknown>
   userMessage?: string
+  policies?: readonly string[]
 }
 
 export interface GateOutput {

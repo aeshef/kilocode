@@ -24,6 +24,14 @@ function req(input: Partial<PermissionRequest> = {}): PermissionRequest {
 }
 
 describe("run permission shared", () => {
+  // kilocode_change start - classifier explanation must not hide original invocation
+  test("shows model summary and original action together", () => {
+    const info = permissionInfo(req({ patterns: ["git push"], metadata: { autoModeReview: true, autoModeSummary: "Publish commits", autoModeReason: "Recipient not approved" } }))
+    expect(info.lines).toContain("Publish commits")
+    expect(info.lines).toContain("Recipient not approved")
+    expect(info.lines).toContain("git push")
+  })
+  // kilocode_change end
   test("replies immediately for allow once", () => {
     const out = permissionRun(createPermissionBodyState("perm-1"), "perm-1", "once")
 
