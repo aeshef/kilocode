@@ -28,6 +28,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 // kilocode_change start
 import { Config } from "@/config/config"
 import { PermissionProvenance } from "@/kilocode/permission/provenance"
+import { lastUserMessageText } from "@/kilocode/session/last-user-text"
 import { McpApps } from "@/kilocode/mcp/apps"
 // kilocode_change end
 import { isRecord } from "@/util/record"
@@ -123,6 +124,10 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
             ...req,
             sessionID: input.session.id,
             tool: { messageID: input.processor.message.id, callID: options.toolCallId },
+            metadata: {
+              ...req.metadata,
+              userMessage: lastUserMessageText(input.messages),
+            },
           },
         }).pipe(
           // record why the call was allowed onto the tool part, then discard the outcome for the tool-facing ask

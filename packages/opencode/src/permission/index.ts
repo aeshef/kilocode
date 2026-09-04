@@ -19,6 +19,9 @@ import { drainCovered } from "@/kilocode/permission/drain"
 import { ReadPermission } from "@/kilocode/permission/read"
 import { AgentManagerPermission } from "@/kilocode/permission/agent-manager" // kilocode_change
 import { ExternalDirectoryPermission } from "@/kilocode/permission/external-directory"
+import { AutoModePipeline } from "@/kilocode/permission/auto-mode"
+import { AutoModeGateDeniedError } from "@/kilocode/permission/auto-mode/denied"
+import { AutoModeCounters } from "@/kilocode/permission/auto-mode/counters"
 // kilocode_change end
 
 export const Event = PermissionV1.Event
@@ -240,6 +243,38 @@ const layer = Layer.effect(
         // kilocode_change end
         needsAsk = true
       }
+
+      // kilocode_change start - auto mode security gate (#9138 / hackathon MVP)
+      // Classify only calls that existing policy would silently approve.
+      // Explicit deny/ask remains authoritative (#9138).
+      if (!needsAsk && AutoModePipeline.enabled()) {
+        const gate = yield* AutoModePipeline.evaluate({
+          permission: request.permission,
+          patterns: request.patterns,
+          metadata: request.metadata,
+          userMessage: typeof request.metadata?.["userMessage"] === "string" ? request.metadata["userMessage"] : undefined,
+        })
+        if (gate?.decision === "deny") {
+          const { count, exhausted } = AutoModeCounters.record(request.sessionID)
+          if (exhausted) {
+            yield* Effect.logWarning("auto-mode gate block budget exhausted", {
+              sessionID: request.sessionID,
+              count,
+            })
+            return yield* new RejectedError()
+          }
+          return yield* new AutoModeGateDeniedError(
+            gate,
+            request.permission,
+            request.patterns[0] ?? "*",
+            count,
+          )
+        }
+        if (gate?.decision === "ask") {
+          needsAsk = true
+        }
+      }
+      // kilocode_change end
 
       if (!needsAsk) return { manual: false, rule: approvedRule } // kilocode_change - report auto-approval
 
