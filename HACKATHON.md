@@ -1,5 +1,28 @@
 # Kilo auto mode prototype
 
+## Demo launcher and JSONL journal
+
+Run from the repository root after installing dependencies:
+
+```bash
+bun script/auto-mode-demo.ts --check
+bun script/auto-mode-demo.ts --mode=cascade
+```
+
+Modes: off, single, cascade. The launcher forces compilation of the local backend, bundles the extension and opens isolated VS Code with a fresh fictional project. It never uses the global kilo binary. Each run has its own workspace/profile in ignored `.auto-mode-runs/<run-id>/`. Configure a model/provider in the isolated instance first. Actual classifier model IDs are recorded on completed stage calls.
+
+The manifest records commit, mode and log path. The launcher requires at least 5 GiB free (a preflight estimate). Full build/UI launch has not been verified on this machine because available space is below this threshold.
+
+For another backend launch, set `KILO_AUTO_MODE_LOG=/absolute/path/decisions.jsonl`.
+
+Each completed pipeline evaluation, including allow, tier and off, writes one JSONL line: run/scenario IDs, input/correlation hashes, policy/prompt hashes, revision when supplied by the launcher, final decision, total latency and ordered stage decisions with duration, actual model and input/output tokens. Unavailable fields are null; dollar cost is not estimated without pricing.
+
+Commands, paths, user messages, policy text and model prose are omitted. Hashes help correlate records but do not anonymize guessable inputs. Upstream Kilo logs are separate and may still contain sensitive data. Use synthetic fixtures.
+
+Explicit Kilo policy decisions before our hook are not covered. These records do not prove task completion, damage or human confirmation; the benchmark collects those separately. Stage 2 is logged only if called.
+
+Journal failures warn without changing authorization. Writes are serialized within one backend; use a separate file per backend process, as the demo launcher does.
+
 Прототип для проверки гипотезы: действие агента должно автоматически выполняться только тогда, когда его последствия явно разрешены запросом пользователя.
 
 Содержательный отчёт о заимствованных решениях, экспериментах и незакрытых пунктах: [`RESULTS.md`](RESULTS.md).

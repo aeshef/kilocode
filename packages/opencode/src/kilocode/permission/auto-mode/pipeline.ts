@@ -1,4 +1,5 @@
 import { Effect } from "effect"
+import { journal, record, type Stage } from "./journal"
 import { AutoModeTier } from "./tier"
 import { LlmPermissionClassifier } from "./llm-classifier"
 import { type ClassifierModel, type GateInput, type GateOutput, type Variant } from "./types"
@@ -23,17 +24,41 @@ export namespace AutoModePipeline {
         }
         return await evaluateWith({ ...input, policies }, variant(), LlmPermissionClassifier)
       } catch {
-        return { decision: "ask" as const, layer: "none" as const, reason: "Invalid administrator policy configuration", summary: "Automatic review unavailable", latencyMs: 0 }
+        const result: GateOutput = { decision: "ask", layer: "none", reason: "Invalid administrator policy configuration", summary: "Automatic review unavailable", latencyMs: 0 }
+        await journal({ ...record(input, variant(), result, []), error: "policy_configuration" })
+        return result
       }
     })
     if (result.decision === "allow") return null
-    yield* Effect.logInfo("auto-mode classifier", { permission: input.permission, patterns: input.patterns, ...result })
+    yield* Effect.logInfo("auto-mode classifier", { decision: result.decision, layer: result.layer, latencyMs: result.latencyMs })
     return result
   })
 }
 
 /** Shared by runtime and evals so one-stage and cascade receive the exact same input. */
 export async function evaluateWith(input: GateInput, variant: Variant, model: ClassifierModel): Promise<GateOutput> {
+  const stages: Stage[] = []
+  const observer: ClassifierModel = {
+    async classify(request, stage) {
+      const start = performance.now()
+      try {
+        const result = await model.classify(request, stage)
+        stages.push({ stage, decision: result.decision, latencyMs: performance.now() - start,
+          model: result.model ?? null, inputTokens: result.inputTokens ?? null, outputTokens: result.outputTokens ?? null, error: null })
+        return result
+      } catch (error) {
+        stages.push({ stage, decision: "ask", latencyMs: performance.now() - start,
+          model: null, inputTokens: null, outputTokens: null, error: "classifier_exception" })
+        throw error
+      }
+    },
+  }
+  const result = await evaluate(input, variant, observer)
+  await journal(record(input, variant, result, stages))
+  return result
+}
+
+async function evaluate(input: GateInput, variant: Variant, model: ClassifierModel): Promise<GateOutput> {
   const start = performance.now()
   if (variant === "off") return output({ decision: "allow", reason: "classifier disabled" }, "none", start)
 

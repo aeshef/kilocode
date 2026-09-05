@@ -252,7 +252,7 @@ const layer = Layer.effect(
         const gate = yield* AutoModePipeline.evaluate({
           permission: request.permission,
           patterns: request.patterns,
-          metadata: request.metadata,
+          metadata: { ...request.metadata, autoModeCorrelation: { session: request.sessionID, tool: request.tool } },
           userMessage: typeof request.metadata?.["userMessage"] === "string" ? request.metadata["userMessage"] : undefined,
         })
         if (gate?.decision === "deny") {

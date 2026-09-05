@@ -33,12 +33,14 @@ export const LlmPermissionClassifier: ClassifierModel = {
       ),
       prompt: classifierPrompt(input, stage),
     })
+    const usage = { model: `${resolved.model.providerID}/${resolved.model.id}`, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens }
     if (stage === 1) {
-      return result.text.trim().toUpperCase() === "ALLOW"
+      const decision: ModelDecision = result.text.trim().toUpperCase() === "ALLOW"
         ? { decision: "allow", risk: "low", summary: "low-risk action", reason: "stage 1 allowed" }
         : { decision: "ask", risk: "medium", summary: "deeper review required", reason: "stage 1 escalated" }
+      return { ...decision, ...usage }
     }
-    return parseDecision(result.text)
+    return { ...parseDecision(result.text), ...usage }
   },
 }
 

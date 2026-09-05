@@ -27,6 +27,9 @@ export interface ModelDecision {
   summary: string
   risk: "low" | "medium" | "high"
   confidence?: number
+  model?: string
+  inputTokens?: number
+  outputTokens?: number
 }
 
 export interface ClassifierModel {
