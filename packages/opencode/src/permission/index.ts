@@ -19,7 +19,7 @@ import { drainCovered } from "@/kilocode/permission/drain"
 import { ReadPermission } from "@/kilocode/permission/read"
 import { AgentManagerPermission } from "@/kilocode/permission/agent-manager" // kilocode_change
 import { ExternalDirectoryPermission } from "@/kilocode/permission/external-directory"
-import { AutoModePipeline } from "@/kilocode/permission/auto-mode"
+import { AutoModePipeline } from "@/kilocode/permission/auto-mode/pipeline"
 import { AutoModeGateDeniedError } from "@/kilocode/permission/auto-mode/denied"
 import { AutoModeCounters } from "@/kilocode/permission/auto-mode/counters"
 // kilocode_change end
@@ -146,7 +146,19 @@ function subset(permission: string, ruleset: Ruleset) {
   return ruleset.filter((rule) => Wildcard.match(permission, rule.permission))
 }
 
+// kilocode_change start - auto mode gate wiring: bash (and anything else with
+// no configured rule at all) falls back to the synthetic default `ask` from
+// evaluate()'s `?? { action: "ask", ... }`, which is indistinguishable in
+// shape from a real admin/user `ask` rule. hasExplicitRule re-checks the same
+// rulesets without that fallback so the gate can tell "nobody has an opinion"
+// (safe to classify) from "someone explicitly said ask" (stays authoritative).
+function hasExplicitRule(permission: string, pattern: string, ...rulesets: Ruleset[]): boolean {
+  return rulesets.flat().some((rule) => Wildcard.match(permission, rule.permission) && Wildcard.match(pattern, rule.pattern))
+}
+// kilocode_change end
+
 function covered(entry: PendingEntry, approved: Ruleset, local: Ruleset) {
+  if (entry.info.metadata?.["autoModeReview"] === true) return false // kilocode_change
   if (ConfigProtection.isRequest(entry.info)) return false
   if (entry.info.metadata?.["skillShell"] === true) return false // kilocode_change - skill batch needs an explicit reply
   if (entry.info.metadata?.["sandboxEscalation"] === true) return false // kilocode_change - host access needs an explicit reply
@@ -196,6 +208,7 @@ const layer = Layer.effect(
       // kilocode_change end
       let needsAsk = false
       let approvedRule: Rule | undefined // kilocode_change - remember the rule that auto-approved
+      let gateEligible = !ConfigProtection.isRequest(request) // kilocode_change - protected paths always require existing policy
 
       // kilocode_change start - protect config access while honoring explicit global skill trust
       const isProtected = ConfigProtection.isRequest(request)
@@ -232,6 +245,7 @@ const layer = Layer.effect(
         // kilocode_change start - skill shell forces a prompt instead of honoring an allow/auto-approve rule
         if (forceAsk) {
           needsAsk = true
+          gateEligible = false // kilocode_change - always human-confirmed, never second-guessed by the classifier
           continue
         }
         // kilocode_change end
@@ -240,22 +254,44 @@ const layer = Layer.effect(
           approvedRule = rule // remember the winning rule so callers can explain the auto-approval
           continue
         }
+        if (rule.action === "allow" && isProtected && !trusted) {
+          needsAsk = true
+          gateEligible = false // kilocode_change - protected-config downgrade is authoritative, not a gate call
+          continue
+        }
         // kilocode_change end
+        // kilocode_change start - a real configured ask (admin/user rule, not the synthetic default) stays authoritative
         needsAsk = true
+        if (!("autoModeDefault" in rule && rule.autoModeDefault === true) && hasExplicitRule(request.permission, pattern, ruleset, approved, local)) {
+          gateEligible = false
+        }
+        // kilocode_change end
       }
 
       // kilocode_change start - auto mode security gate (#9138 / hackathon MVP)
       let review: Record<string, unknown> = {}
-      // Classify only calls that existing policy would silently approve.
-      // Explicit deny/ask remains authoritative (#9138).
-      if (!needsAsk && AutoModePipeline.enabled()) {
+      const active = AutoModePipeline.enabled() && AutoModePipeline.variant() !== "off"
+      // Existing explicit asks remain human decisions even when a client runs with --auto.
+      if (needsAsk && !gateEligible && active) {
+        review = { autoModeReview: true, autoModeReason: "Existing permission policy requires human approval", disableAlways: true }
+      }
+      // Cover both missing-rule asks and marked built-in bash asks, not user-authored asks.
+      // Off must preserve the original pending flow: evaluate(off) would otherwise auto-allow it.
+      if ((!needsAsk || gateEligible) && active) {
         const gate = yield* AutoModePipeline.evaluate({
           permission: request.permission,
           patterns: request.patterns,
           metadata: { ...request.metadata, autoModeCorrelation: { session: request.sessionID, tool: request.tool } },
           userMessage: typeof request.metadata?.["userMessage"] === "string" ? request.metadata["userMessage"] : undefined,
         })
-        if (gate?.decision === "deny") {
+        if (gate === null) {
+          // kilocode_change - AutoModePipeline.evaluate returns null for "allow"; only meaningful
+          // to act on here when this call had no configured rule at all (needsAsk was true).
+          if (needsAsk) {
+            needsAsk = false
+            approvedRule = { permission: request.permission, pattern: request.patterns[0] ?? "*", action: "allow" }
+          }
+        } else if (gate.decision === "deny") {
           const { count, exhausted } = AutoModeCounters.record(request.sessionID)
           if (exhausted) {
             yield* Effect.logWarning("auto-mode gate block budget exhausted", {
@@ -270,8 +306,7 @@ const layer = Layer.effect(
             request.patterns[0] ?? "*",
             count,
           )
-        }
-        if (gate?.decision === "ask") {
+        } else if (gate.decision === "ask") {
           needsAsk = true
           review = { autoModeReview: true, autoModeSummary: gate.summary, autoModeReason: gate.reason, autoModeRisk: gate.risk, disableAlways: true }
         }

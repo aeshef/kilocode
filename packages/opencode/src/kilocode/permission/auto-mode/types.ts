@@ -13,6 +13,7 @@ export interface GateInput {
 }
 
 export interface GateOutput {
+  stages?: import("./journal").Stage[]
   decision: Decision
   layer: Layer
   reason: string
@@ -22,6 +23,7 @@ export interface GateOutput {
 }
 
 export interface ModelDecision {
+  error?: string
   decision: Decision
   reason: string
   summary: string

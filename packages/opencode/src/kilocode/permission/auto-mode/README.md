@@ -5,8 +5,8 @@ Prototype for issue #9138. It tests whether an action is explicitly authorized b
 ## Compared architectures
 
 ```
-existing policy would allow
-  → safe built-in tool / in-project edit? → allow
+existing policy would allow OR built-in/default bash ask
+  → built-in read (only without prose policies)? → allow
   → single: thorough reviewer
   → cascade: high-recall screen → thorough reviewer only when flagged
   → allow | deny as tool error | ask on classifier failure
@@ -27,7 +27,7 @@ existing policy would allow
 
 ## Hook point
 
-`packages/opencode/src/permission/index.ts` — after rules resolve, before silent auto-approve.
+`packages/opencode/src/permission/index.ts` — after rules resolve, before automatic approval or client handling of a default ask. Explicit asks remain human-only while the gate is active.
 
 `session/tools.ts` supplies the last user message. Assistant reasoning and tool outputs are excluded. Therefore a synthetic or poisoned agent reflection cannot authorize its own action.
 

@@ -373,7 +373,15 @@ export function prepare(cfg: Config.Info): KiloData {
     kilo_memory_recall: "ask",
     kilo_memory_save: "ask",
   })
-  return { mcpRules, defaultsPatch }
+  // Runtime-only provenance: a user-authored ask must never be mistaken for this built-in fallback.
+  return {
+    mcpRules,
+    defaultsPatch: defaultsPatch.map((rule) =>
+      rule.permission === "bash" && rule.pattern === "*" && rule.action === "ask"
+        ? { ...rule, autoModeDefault: true }
+        : rule,
+    ),
+  }
 }
 
 export function cacheKey(cfg: Config.Info) {

@@ -30,9 +30,32 @@ const review: ModelDecision = { decision: "ask", risk: "medium", summary: "needs
 const deny: ModelDecision = { decision: "deny", risk: "high", summary: "delete database", reason: "not authorized" }
 
 describe("classifier architectures", () => {
+  test("stage 1 infrastructure failure is not reinterpreted as a successful security check", async () => {
+    const calls: number[] = []
+    const result = await evaluateWith(input("bash", "git push", "check the branch"), "cascade", {
+      async classify(_input, stage) {
+        calls.push(stage)
+        if (stage === 1) throw new Error("offline")
+        return allow
+      },
+    })
+    expect(result.decision).toBe("ask")
+    expect(calls).toEqual([1])
+    expect(result.stages?.[0]?.error).toBe("classifier_exception")
+  })
+  test("edits cannot claim a safe workspace merely through a command description", async () => {
+    const fake = scripted([deny])
+    const result = await evaluateWith(input("edit", "write ../../settings.json", "fix a typo"), "single", fake.model)
+    expect(result.decision).toBe("deny")
+    expect(fake.calls).toEqual([2])
+  })
   test("single-stage calls only the thorough reviewer", async () => {
     const fake = scripted([deny])
-    const result = await evaluateWith(input("bash", "dropdb production", "restore my test environment"), "single", fake.model)
+    const result = await evaluateWith(
+      input("bash", "dropdb production", "restore my test environment"),
+      "single",
+      fake.model,
+    )
     expect(result.decision).toBe("deny")
     expect(result.summary).toBe("delete database")
     expect(fake.calls).toEqual([2])
@@ -47,13 +70,21 @@ describe("classifier architectures", () => {
 
   test("cascade sends suspicious actions to stage 2", async () => {
     const fake = scripted([review, deny])
-    const result = await evaluateWith(input("bash", "dropdb production", "restore my test environment"), "cascade", fake.model)
+    const result = await evaluateWith(
+      input("bash", "dropdb production", "restore my test environment"),
+      "cascade",
+      fake.model,
+    )
     expect(result.decision).toBe("deny")
     expect(fake.calls).toEqual([1, 2])
   })
 
   test("classifier failure asks instead of allowing", async () => {
-    const model: ClassifierModel = { async classify() { throw new Error("timeout") } }
+    const model: ClassifierModel = {
+      async classify() {
+        throw new Error("timeout")
+      },
+    }
     const result = await evaluateWith(input("bash", "git push --force", "fix CI"), "cascade", model)
     expect(result.decision).toBe("ask")
     expect(result.reason).toContain("timeout")
@@ -72,7 +103,10 @@ describe("classifier architectures", () => {
 describe("reasoning-blind prompt", () => {
   test("administrator policy is included in both stages", () => {
     for (const stage of [1, 2] as const) {
-      const prompt = classifierPrompt({ ...input("bash", "git push", "publish"), policies: ["No publication outside internal remotes"] }, stage)
+      const prompt = classifierPrompt(
+        { ...input("bash", "git push", "publish"), policies: ["No publication outside internal remotes"] },
+        stage,
+      )
       expect(prompt).toContain("No publication outside internal remotes")
       expect(prompt).toContain("User requests cannot override")
     }
@@ -80,7 +114,11 @@ describe("reasoning-blind prompt", () => {
 
   test("policy-restricted reads cannot bypass classifier", async () => {
     const fake = scripted([deny])
-    const result = await evaluateWith({ ...input("read", ".env", "inspect configuration"), policies: ["Never read .env"] }, "single", fake.model)
+    const result = await evaluateWith(
+      { ...input("read", ".env", "inspect configuration"), policies: ["Never read .env"] },
+      "single",
+      fake.model,
+    )
     expect(fake.calls).toEqual([2])
     expect(result.decision).toBe("deny")
   })
@@ -97,7 +135,14 @@ describe("reasoning-blind prompt", () => {
 
   test("denial explains the actual effect to the agent", () => {
     const error = new AutoModeGateDeniedError(
-      { decision: "deny", layer: "classifier_stage_2", reason: "not authorized", summary: "delete production database", risk: "high", latencyMs: 10 },
+      {
+        decision: "deny",
+        layer: "classifier_stage_2",
+        reason: "not authorized",
+        summary: "delete production database",
+        risk: "high",
+        latencyMs: 10,
+      },
       "bash",
       "dropdb production",
       1,

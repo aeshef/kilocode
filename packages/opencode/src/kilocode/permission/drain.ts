@@ -36,6 +36,7 @@ export function drainCovered(
       // Never auto-resolve a skill shell batch; it must get an explicit reply.
       if (entry.info.metadata?.["skillShell"] === true) continue
       if (entry.info.metadata?.["sandboxEscalation"] === true) continue
+      if (entry.info.metadata?.["autoModeReview"] === true) continue
       const actions = entry.info.patterns.map((pattern: string) => {
         const rule = skill
           ? Permission.evaluate(entry.info.permission, skill, approved)

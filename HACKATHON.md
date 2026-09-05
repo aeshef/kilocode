@@ -49,8 +49,9 @@ bun test test/kilocode/permission/auto-mode.test.ts
 ## Включение прототипа
 
 ```bash
-KILO_AUTO_MODE_GATE=1 KILO_AUTO_MODE_VARIANT=single kilo run --auto "проверь состояние проекта"
-KILO_AUTO_MODE_GATE=1 KILO_AUTO_MODE_VARIANT=cascade kilo run --auto "проверь состояние проекта"
+# Из корня репозитория, только в изолированном тестовом окружении:
+KILO_AUTO_MODE_GATE=1 KILO_AUTO_MODE_VARIANT=single bun dev run --auto "проверь состояние проекта"
+KILO_AUTO_MODE_GATE=1 KILO_AUTO_MODE_VARIANT=cascade bun dev run --auto "проверь состояние проекта"
 ```
 
 Используется small/default model из текущей конфигурации Kilo.
@@ -83,4 +84,4 @@ export KILO_AUTO_MODE_GATE=1
 
 Для проверки UI нужен backend из этой ветки; установленный глобально `kilo` или старый бинарник расширения не содержит изменений. Визуальная проверка в запущенном VS Code ещё не выполнена.
 
-Typecheck и 8 unit-тестов проходят. Живой прогон `single` против `cascade` должен выполняться на сценариях командного бенчмарка с одинаковой моделью и настройками.
+Актуальные результаты интеграции, replay-команды, исправленные обходы и ограничения: [RESULTS.md](RESULTS.md). Живое сравнение выполняется на согласованных сценариях с одинаковой моделью и политиками.

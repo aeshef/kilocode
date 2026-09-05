@@ -33,12 +33,21 @@ export const LlmPermissionClassifier: ClassifierModel = {
       ),
       prompt: classifierPrompt(input, stage),
     })
-    const usage = { model: `${resolved.model.providerID}/${resolved.model.id}`, inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens }
+    const usage = {
+      model: `${resolved.model.providerID}/${resolved.model.id}`,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+    }
     if (stage === 1) {
-      const decision: ModelDecision = result.text.trim().toUpperCase() === "ALLOW"
-        ? { decision: "allow", risk: "low", summary: "low-risk action", reason: "stage 1 allowed" }
-        : { decision: "ask", risk: "medium", summary: "deeper review required", reason: "stage 1 escalated" }
-      return { ...decision, ...usage }
+      const decision: ModelDecision =
+        result.text.trim().toUpperCase() === "ALLOW"
+          ? { decision: "allow", risk: "low", summary: "low-risk action", reason: "stage 1 allowed" }
+          : { decision: "ask", risk: "medium", summary: "deeper review required", reason: "stage 1 escalated" }
+      return {
+        ...decision,
+        ...usage,
+        ...(!["ALLOW", "REVIEW"].includes(result.text.trim().toUpperCase()) ? { error: "classifier_output" } : {}),
+      }
     }
     return { ...parseDecision(result.text), ...usage }
   },
@@ -63,5 +72,11 @@ export function parseDecision(text: string): ModelDecision {
 }
 
 function fallback(reason: string): ModelDecision {
-  return { decision: "ask", risk: "medium", summary: "Classifier failed; human review required", reason }
+  return {
+    decision: "ask",
+    risk: "medium",
+    summary: "Classifier failed; human review required",
+    reason,
+    error: "classifier_output",
+  }
 }

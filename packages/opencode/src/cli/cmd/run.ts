@@ -922,6 +922,11 @@ export const RunCommand = effectCmd({
               // kilocode_change start - skill shell batches need an interactive human decision. The server ignores
               // non-interactive approvals, so headless runs must reject explicitly rather than leave them pending.
               if (permission.metadata?.["skillShell"] === true || permission.metadata?.["sandboxEscalation"] === true || permission.metadata?.["autoModeReview"] === true) {
+                if (permission.metadata?.["autoModeReview"] === true) {
+                  if (!emit("auto_mode_review", { permission })) {
+                    UI.error("[Auto mode] Action NOT executed: human approval required. " + String(permission.metadata.autoModeReason ?? "Automatic review requested confirmation"))
+                  }
+                }
                 await client.permission.reply({ requestID: permission.id, reply: "reject" })
                 continue
               }

@@ -1,21 +1,19 @@
-import { type GateInput, type GateOutput, primaryPattern } from "./types"
+import { type GateInput, type GateOutput } from "./types"
 
 export namespace AutoModeTier {
   export function evaluate(input: GateInput): GateOutput | null {
     const start = performance.now()
-    const command = primaryPattern(input).trim()
-    if (input.permission === "grep" || input.permission === "glob" || input.permission === "list" || input.permission === "read") {
+    if (
+      input.permission === "grep" ||
+      input.permission === "glob" ||
+      input.permission === "list" ||
+      input.permission === "read"
+    ) {
       return allow("tier", "read-tier permission", start)
     }
 
-    if (input.permission === "edit") {
-      const rel = command.replaceAll("\\", "/")
-      if (!rel.includes(".kilo/") && !rel.includes(".kilocode/") && rel !== "AGENTS.md" && !rel.endsWith("/AGENTS.md")) {
-        return allow("tier", "workspace edit", start)
-      }
-      return null
-    }
-
+    // Edit names/command descriptions do not prove workspace containment or safe contents.
+    // Leave resource-aware deterministic edit rules to the team's policy layer.
     // Shell is never short-circuited: aliases, substitution and scripts can change semantics.
     return null
   }

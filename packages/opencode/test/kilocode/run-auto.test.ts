@@ -153,7 +153,7 @@ async function run(sdk: Record<string, unknown>, transport: Transport = {}) {
 }
 
 describe("cli run auto permissions", () => {
-  test("auto approves tracked subagent permissions and ignores unrelated sessions", async () => {
+  test.each([false, true])("auto routes tracked permissions; human review=%s", async (review) => {
     const q = feed<Event>()
     const calls: Array<{ requestID: string; reply: string }> = []
     const done = Promise.withResolvers<void>()
@@ -189,7 +189,9 @@ describe("cli run auto permissions", () => {
         prompt: async () => {
           q.push(task("ses_child"))
           q.push(permission("perm_other", "ses_other"))
-          q.push(permission("perm_child", "ses_child"))
+          const event = permission("perm_child", "ses_child")
+          if (review) event.properties.metadata = { autoModeReview: true, autoModeReason: "User did not authorize deletion" }
+          q.push(event)
           q.push(idle())
           await done.promise
           return { data: undefined }
@@ -199,7 +201,7 @@ describe("cli run auto permissions", () => {
 
     await run(sdk)
 
-    expect(calls).toEqual([{ requestID: "perm_child", reply: "once" }])
+    expect(calls).toEqual([{ requestID: "perm_child", reply: review ? "reject" : "once" }])
   })
 
   test("a failed prompt aborts a blocked permission reply during cleanup", async () => {

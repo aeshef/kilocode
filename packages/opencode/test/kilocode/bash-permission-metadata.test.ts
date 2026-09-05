@@ -1,13 +1,13 @@
 // regression test for bash permission metadata.command
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { describe, expect, test } from "bun:test"
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Effect, Fiber, Layer, ManagedRuntime } from "effect"
 import { ShellTool } from "../../src/tool/shell"
 import { provideTestInstance } from "../fixture/fixture"
 import { tmpdir } from "../fixture/fixture"
 import { Shell } from "@opencode-ai/core/shell"
 import { SessionID, MessageID } from "../../src/session/schema"
-import type { Permission } from "../../src/permission"
+import { Permission } from "../../src/permission"
 import { Agent } from "../../src/agent/agent"
 import { Truncate } from "../../src/tool/truncate"
 import * as CrossSpawnSpawner from "@opencode-ai/core/cross-spawn-spawner"
@@ -18,6 +18,7 @@ import { RuntimeFlags } from "../../src/effect/runtime-flags"
 
 const runtime = ManagedRuntime.make(
   Layer.mergeAll(
+    AppNodeBuilder.build(Permission.node),
     AppNodeBuilder.build(CrossSpawnSpawner.node),
     AppNodeBuilder.build(FSUtil.node),
     AppNodeBuilder.build(Plugin.node),
@@ -50,6 +51,59 @@ const capture = (requests: Array<Omit<Permission.Request, "id" | "sessionID" | "
 })
 
 describe("bash permission metadata.command", () => {
+  test.each([false, true])("real shell execution respects auto-mode review: %s", async (active) => {
+    const keys = ["KILO_AUTO_MODE_GATE", "KILO_AUTO_MODE_VARIANT", "KILO_AUTO_MODE_POLICIES"] as const
+    const saved = keys.map((key) => process.env[key])
+    process.env.KILO_AUTO_MODE_GATE = active ? "1" : "0"
+    process.env.KILO_AUTO_MODE_VARIANT = "single"
+    process.env.KILO_AUTO_MODE_POLICIES = "invalid-json"
+    try {
+      await using tmp = await tmpdir()
+      const marker = `${tmp.path}/gate-marker.txt`
+      await Bun.write(marker, "synthetic disposable marker")
+      await provideTestInstance({
+        directory: tmp.path,
+        fn: () =>
+          runtime.runPromise(
+            Effect.gen(function* () {
+              const svc = yield* Permission.Service
+              const agents = yield* Agent.Service
+              const ruleset = (yield* agents.get("code")).permission
+              const bash = yield* ShellTool.pipe(Effect.flatMap((info) => info.init()))
+              const fiber = yield* bash
+                .execute(
+                  { command: "rm -f gate-marker.txt", workdir: tmp.path },
+                  {
+                    ...baseCtx,
+                    ask: (req) => svc.ask({ ...req, sessionID: baseCtx.sessionID, ruleset }).pipe(Effect.asVoid, Effect.orDie),
+                  },
+                )
+                .pipe(Effect.forkScoped)
+              const row = yield* Effect.gen(function* () {
+                for (let i = 0; i < 100; i++) {
+                  const rows = yield* svc.list()
+                  if (rows.length) return rows[0]!
+                  yield* Effect.sleep("10 millis")
+                }
+                throw new Error("Shell never asked permission")
+              })
+              expect(row.permission).toBe("bash")
+              expect(row.metadata.autoModeReview === true).toBe(active)
+              // Emulate headless client's contract: auto-reply to ordinary asks, reject human-only asks.
+              yield* svc.reply({ requestID: row.id, reply: active ? "reject" : "once" })
+              yield* Fiber.await(fiber)
+            }).pipe(Effect.scoped),
+          ),
+      })
+      expect(await Bun.file(marker).exists()).toBe(active)
+    } finally {
+      keys.forEach((key, i) => {
+        if (saved[i] === undefined) delete process.env[key]
+        else process.env[key] = saved[i]
+      })
+    }
+  })
+
   test("permission prompt shows raw command without tool name prefix", async () => {
     await using tmp = await tmpdir()
     await provideTestInstance({

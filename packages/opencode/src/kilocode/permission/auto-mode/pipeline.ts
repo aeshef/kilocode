@@ -1,7 +1,6 @@
 import { Effect } from "effect"
 import { journal, record, type Stage } from "./journal"
 import { AutoModeTier } from "./tier"
-import { LlmPermissionClassifier } from "./llm-classifier"
 import { type ClassifierModel, type GateInput, type GateOutput, type Variant } from "./types"
 
 export namespace AutoModePipeline {
@@ -22,15 +21,26 @@ export namespace AutoModePipeline {
         if (!Array.isArray(policies) || !policies.every((rule) => typeof rule === "string")) {
           throw new Error("KILO_AUTO_MODE_POLICIES must be a JSON array of strings")
         }
+        const { LlmPermissionClassifier } = await import("./llm-classifier")
         return await evaluateWith({ ...input, policies }, variant(), LlmPermissionClassifier)
       } catch {
-        const result: GateOutput = { decision: "ask", layer: "none", reason: "Invalid administrator policy configuration", summary: "Automatic review unavailable", latencyMs: 0 }
+        const result: GateOutput = {
+          decision: "ask",
+          layer: "none",
+          reason: "Invalid administrator policy configuration",
+          summary: "Automatic review unavailable",
+          latencyMs: 0,
+        }
         await journal({ ...record(input, variant(), result, []), error: "policy_configuration" })
         return result
       }
     })
     if (result.decision === "allow") return null
-    yield* Effect.logInfo("auto-mode classifier", { decision: result.decision, layer: result.layer, latencyMs: result.latencyMs })
+    yield* Effect.logInfo("auto-mode classifier", {
+      decision: result.decision,
+      layer: result.layer,
+      latencyMs: result.latencyMs,
+    })
     return result
   })
 }
@@ -43,19 +53,33 @@ export async function evaluateWith(input: GateInput, variant: Variant, model: Cl
       const start = performance.now()
       try {
         const result = await model.classify(request, stage)
-        stages.push({ stage, decision: result.decision, latencyMs: performance.now() - start,
-          model: result.model ?? null, inputTokens: result.inputTokens ?? null, outputTokens: result.outputTokens ?? null, error: null })
+        stages.push({
+          stage,
+          decision: result.decision,
+          latencyMs: performance.now() - start,
+          model: result.model ?? null,
+          inputTokens: result.inputTokens ?? null,
+          outputTokens: result.outputTokens ?? null,
+          error: result.error ?? null,
+        })
         return result
       } catch (error) {
-        stages.push({ stage, decision: "ask", latencyMs: performance.now() - start,
-          model: null, inputTokens: null, outputTokens: null, error: "classifier_exception" })
+        stages.push({
+          stage,
+          decision: "ask",
+          latencyMs: performance.now() - start,
+          model: null,
+          inputTokens: null,
+          outputTokens: null,
+          error: "classifier_exception",
+        })
         throw error
       }
     },
   }
   const result = await evaluate(input, variant, observer)
   await journal(record(input, variant, result, stages))
-  return result
+  return { ...result, stages }
 }
 
 async function evaluate(input: GateInput, variant: Variant, model: ClassifierModel): Promise<GateOutput> {
@@ -72,6 +96,7 @@ async function evaluate(input: GateInput, variant: Variant, model: ClassifierMod
   }
 
   const screen = await classifyOrAsk(model, input, 1)
+  if (screen.error) return output(screen, "classifier_stage_1", start)
   if (screen.decision === "allow") return output(screen, "classifier_stage_1", start)
 
   const review = await classifyOrAsk(model, input, 2)
@@ -83,6 +108,7 @@ async function classifyOrAsk(model: ClassifierModel, input: GateInput, stage: 1 
     return await model.classify(input, stage)
   } catch (error) {
     return {
+      error: "classifier_exception",
       decision: "ask" as const,
       risk: "medium" as const,
       summary: "The automatic check failed",
@@ -91,6 +117,10 @@ async function classifyOrAsk(model: ClassifierModel, input: GateInput, stage: 1 
   }
 }
 
-function output(result: { decision: GateOutput["decision"]; reason: string; summary?: string; risk?: GateOutput["risk"] }, layer: GateOutput["layer"], start: number): GateOutput {
+function output(
+  result: { decision: GateOutput["decision"]; reason: string; summary?: string; risk?: GateOutput["risk"] },
+  layer: GateOutput["layer"],
+  start: number,
+): GateOutput {
   return { ...result, layer, latencyMs: Math.round(performance.now() - start) }
 }
